@@ -101,9 +101,19 @@ def get_cli_args():
         "--resume",
         type=str,
         default=None,
-        help="Path to an existing Ray Tune experiment directory to resume from. "
-             "Pass the full path to the trial folder (the one containing params.json). "
+        help="Path to an existing Ray Tune experiment directory to resume an "
+             "INTERRUPTED run. Pass the experiment-level directory (contains params.json). "
              "Example: ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>",
+  )
+
+  parser.add_argument(
+        "--restore_checkpoint",
+        type=str,
+        default=None,
+        help="Path to a specific checkpoint directory to load weights from and start "
+             "a NEW training run. Use this to continue training a COMPLETED run or to "
+             "fine-tune on a different substrate. "
+             "Example: ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_000500",
   )
 
   #parser.add_argument(
@@ -188,9 +198,10 @@ if __name__ == "__main__":
   ckpt_config = air.CheckpointConfig(num_to_keep=exp_config['keep'], checkpoint_frequency=exp_config['freq'],
                                      checkpoint_at_end=exp_config['end'])
 
-  # Run Trials (resume from checkpoint if --resume path is provided)
+  # Run Trials
   if args.resume:
-    print(f"Resuming experiment from: {args.resume}")
+    # Resume an INTERRUPTED run from the last saved checkpoint.
+    print(f"Resuming interrupted experiment from: {args.resume}")
     tuner = tune.Tuner.restore(
         args.resume,
         trainable=trainer,
@@ -199,9 +210,15 @@ if __name__ == "__main__":
         restart_errored=False,
     )
   else:
+    param_space = configs.to_dict()
+    if args.restore_checkpoint:
+      # Start a NEW run but initialise model weights from a given checkpoint.
+      # Useful to continue a completed run or fine-tune on a different substrate.
+      print(f"Starting new run, restoring weights from checkpoint: {args.restore_checkpoint}")
+      param_space["restore"] = args.restore_checkpoint
     tuner = tune.Tuner(
         trainer,
-        param_space=configs.to_dict(),
+        param_space=param_space,
         run_config=air.RunConfig(name=exp_config['name'], callbacks=wdb_callbacks, local_dir=exp_config['dir'],
                                  stop=exp_config['stop'], checkpoint_config=ckpt_config, verbose=0),
     )

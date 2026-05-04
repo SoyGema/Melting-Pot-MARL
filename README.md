@@ -120,27 +120,55 @@ OPTIONS:
   --downsample DOWNSAMPLE
                         Whether to downsample substrates in MeltingPot. Defaults to 8.
   --as-test             Whether this script should be run as a test.
-  --resume RESUME       Path to an existing Ray Tune experiment directory to resume from.
+  --resume RESUME       Resume an interrupted run from its last checkpoint.
+                        Pass the experiment-level directory (contains params.json).
                         Example: ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>
+  --restore_checkpoint RESTORE_CHECKPOINT
+                        Start a new run but load weights from a specific checkpoint.
+                        Use this to continue a completed run or fine-tune on a new substrate.
+                        Example: ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_000500
 
 ```
 
-### Resuming a training run
+### Resuming and continuing training
 
-Checkpoints are saved every 100 training iterations under `./results/torch/<exp_name>/`. If training is interrupted (power loss, cloud preemption, etc.) you can resume from the last checkpoint:
+Checkpoints are saved every 100 training iterations under `./results/torch/<exp_name>/`.
+There are two separate cases depending on why training stopped:
+
+**Case 1 — Run was interrupted** (power cut, cloud preemption, Ctrl+C):
+
+Use `--resume` with the experiment directory. Training continues from the last saved checkpoint with the same stopping condition.
 
 ```bash
-# Start training
-python baselines/train/run_ray_train.py --exp commons_harvest__open --no-tune
-
-# Find the trial directory that was created
+# Find the experiment directory
 ls ./results/torch/commons_harvest__open/
 
-# Resume from it — training continues from the last saved checkpoint
+# Resume — picks up from the last checkpoint automatically
 python baselines/train/run_ray_train.py \
   --exp commons_harvest__open \
   --no-tune \
   --resume ./results/torch/commons_harvest__open
+```
+
+**Case 2 — Run completed** (hit `timesteps_total`) and you want to train more:
+
+Use `--restore_checkpoint` with the path to a specific checkpoint folder. This starts a **new** run initialised from those weights, so you can also change the substrate, increase timesteps, or adjust any other parameter.
+
+```bash
+# Find the checkpoint folder inside the trial directory
+ls ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>/
+
+# Start a new run from those weights (e.g. to keep training longer)
+python baselines/train/run_ray_train.py \
+  --exp commons_harvest__open \
+  --no-tune \
+  --restore_checkpoint ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_000500
+
+# Or fine-tune on a different substrate (e.g. scarcity) starting from open-trained weights
+python baselines/train/run_ray_train.py \
+  --exp commons_harvest__open_scarcity \
+  --no-tune \
+  --restore_checkpoint ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_000500
 ```
 
 > For torch backend, you may need to prepend the above command with CUDA_VISIBLE_DEVICE=[DEVICE IDs]
