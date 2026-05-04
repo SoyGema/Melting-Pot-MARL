@@ -11,7 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Configuration for Commons Harvest: Open.
+
+#TODO CHANGE DESCRIPTION HERE
+"""Configuration for Commons Harvest: Regrow. Based on Commons Harvest: Open.
 
 Example video: https://youtu.be/lZ-qpPP4BNE
 
@@ -43,12 +45,6 @@ resource appropriation. In Proceedings of the 31st International Conference on
 Neural Information Processing Systems (pp. 3646-3655).
 """
 
-"""
-    Modification(s) from base exp: 
-        * increased apple respawn radius
-        * increase apple respawn probabilities 
-"""
-
 from typing import Any, Dict, Mapping, Sequence
 
 from meltingpot.utils.substrates import colors
@@ -60,9 +56,8 @@ import numpy as np
 # Warning: setting `_ENABLE_DEBUG_OBSERVATIONS = True` may cause slowdown.
 _ENABLE_DEBUG_OBSERVATIONS = False
 
-APPLE_RESPAWN_RADIUS = 1.5
-REGROWTH_PROBABILITIES = [0.0, 0.000050, 0.00010, 0.00050]
-
+APPLE_RESPAWN_RADIUS = 2.0
+REGROWTH_PROBABILITIES = [0.0, 0.0025, 0.005, 0.025]
 
 ASCII_MAP = """
 WWWWWWWWWWWWWWWWWWWWWWWW
@@ -205,12 +200,6 @@ WALL = {
                 "noRotates": [False]
             }
         },
-        {
-            "component": "BeamBlocker",
-            "kwargs": {
-                "beamType": "zapHit"
-            }
-        },
     ]
 }
 
@@ -257,13 +246,14 @@ INSIDE_SPAWN_POINT = {
 # Primitive action components.
 # pylint: disable=bad-whitespace
 # pyformat: disable
-NOOP       = {"move": 0, "turn":  0}
-FORWARD    = {"move": 1, "turn":  0}
-STEP_RIGHT = {"move": 2, "turn":  0}
-BACKWARD   = {"move": 3, "turn":  0}
-STEP_LEFT  = {"move": 4, "turn":  0}
-TURN_LEFT  = {"move": 0, "turn": -1}
-TURN_RIGHT = {"move": 0, "turn":  1}
+NOOP       = {"move": 0, "turn":  0, "fireZap": 0}
+FORWARD    = {"move": 1, "turn":  0, "fireZap": 0}
+STEP_RIGHT = {"move": 2, "turn":  0, "fireZap": 0}
+BACKWARD   = {"move": 3, "turn":  0, "fireZap": 0}
+STEP_LEFT  = {"move": 4, "turn":  0, "fireZap": 0}
+TURN_LEFT  = {"move": 0, "turn": -1, "fireZap": 0}
+TURN_RIGHT = {"move": 0, "turn":  1, "fireZap": 0}
+FIRE_ZAP   = {"move": 0, "turn":  0, "fireZap": 1}
 # pyformat: enable
 # pylint: enable=bad-whitespace
 
@@ -275,6 +265,7 @@ ACTION_SET = (
     STEP_RIGHT,
     TURN_LEFT,
     TURN_RIGHT,
+    FIRE_ZAP,
 )
 
 TARGET_SPRITE_SELF = {
@@ -478,10 +469,11 @@ def create_avatar_object(player_idx: int,
                   "speed": 1.0,
                   "spawnGroup": spawn_group,
                   "postInitialSpawnGroup": "spawnPoints",
-                  "actionOrder": ["move", "turn"],
+                  "actionOrder": ["move", "turn", "fireZap"],
                   "actionSpec": {
                       "move": {"default": 0, "min": 0, "max": len(_COMPASS)},
                       "turn": {"default": 0, "min": -1, "max": 1},
+                      "fireZap": {"default": 0, "min": 0, "max": 1},
                   },
                   "view": {
                       "left": 5,
@@ -492,6 +484,16 @@ def create_avatar_object(player_idx: int,
                   },
                   "spriteMap": custom_sprite_map,
               }
+          },
+          {
+            "component": "Farmer",
+            "kwargs": {
+              "observationCooldownTime": 2,
+              "observationRadius": 2,
+              # no penalty implemented yet
+              "penaltyForEdibleDisappearing": 0,
+              "rewardForEdibleVisible": 0.01,
+            }
           },
           {
               "component": "Zapper",
@@ -506,7 +508,7 @@ def create_avatar_object(player_idx: int,
           },
           {
               "component": "ReadyToShootObservation",
-          },
+          }
       ]
   }
   if _ENABLE_DEBUG_OBSERVATIONS:
@@ -592,3 +594,4 @@ def build(
       },
   )
   return substrate_definition
+

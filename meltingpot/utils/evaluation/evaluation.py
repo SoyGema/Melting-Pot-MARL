@@ -134,12 +134,29 @@ class ReturnSubject(subject.Subject):
       self._return = None
 
 
+class ReturnSubjectStep(subject.Subject):
+  """Subject that emits cumulative player returns at every timestep."""
+
+  def on_next(self, timestep: dm_env.TimeStep):
+    """Called on each timestep.
+
+    Args:
+      timestep: the most recent timestep.
+    """
+    if timestep.step_type.first():
+      self._return = np.zeros_like(timestep.reward)
+    self._return += timestep.reward
+    super().on_next(self._return)
+    if timestep.step_type.last():
+      self._return = None
+
+
 def run_and_observe_episodes(
     population: population_lib.Population,
     substrate: substrate_lib.Substrate,
     num_episodes: int,
     video_root: Optional[str] = None,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
   """Runs a population on a substrate and returns results.
 
   Args:
@@ -149,12 +166,9 @@ def run_and_observe_episodes(
     video_root: path to directory to save videos in.
 
   Returns:
-    A dataframe of results. One row for each episode with columns:
-      background_player_names: the names of each background player.
-      background_player_returns: the episode returns for each background player.
-      focal_player_names: the names of each focal player.
-      focal_player_returns: the episode returns for each focal player.
-      video_path: a path to a video of the episode.
+    A tuple of (episode_df, step_df):
+      episode_df: one row per episode with per-episode aggregate columns.
+      step_df: one row per timestep with cumulative return columns.
   """
   focal_observables = population.observables()
   if isinstance(substrate, scenario_lib.Scenario):
@@ -169,6 +183,7 @@ def run_and_observe_episodes(
             ops.map(lambda t: t._replace(observation=(), reward=()))))
 
   data = collections.defaultdict(list)
+  step_data = collections.defaultdict(list)
   with contextlib.ExitStack() as stack:
 
     def subscribe(observable, *args, **kwargs):
@@ -188,6 +203,13 @@ def run_and_observe_episodes(
     subscribe(focal_observables.names,
               on_next=data['focal_player_names'].append)
 
+    focal_return_step_subject = ReturnSubjectStep()
+    subscribe(focal_observables.timestep, focal_return_step_subject)
+    subscribe(focal_return_step_subject.pipe(ops.map(lambda v: v * 1)),
+              on_next=step_data['focal_player_returns'].append)
+    subscribe(focal_return_step_subject.pipe(ops.map(np.mean)),
+              on_next=step_data['focal_per_capita_return'].append)
+
     background_return_subject = ReturnSubject()
     subscribe(background_observables.timestep, background_return_subject)
     subscribe(background_return_subject,
@@ -197,11 +219,18 @@ def run_and_observe_episodes(
     subscribe(background_observables.names,
               on_next=data['background_player_names'].append)
 
+    background_return_step_subject = ReturnSubjectStep()
+    subscribe(background_observables.timestep, background_return_step_subject)
+    subscribe(background_return_step_subject.pipe(ops.map(lambda v: v * 1)),
+              on_next=step_data['background_player_returns'].append)
+    subscribe(background_return_step_subject.pipe(ops.map(np.mean)),
+              on_next=step_data['background_per_capita_return'].append)
+
     for n in range(num_episodes):
       run_episode(population, substrate)
       logging.info('%4d / %4d episodes completed...', n + 1, num_episodes)
 
-  return pd.DataFrame(data).sort_index(axis=1)
+  return pd.DataFrame(data).sort_index(axis=1), pd.DataFrame(step_data).sort_index(axis=1)
 
 
 def evaluate_population_on_scenario(
