@@ -120,7 +120,27 @@ OPTIONS:
   --downsample DOWNSAMPLE
                         Whether to downsample substrates in MeltingPot. Defaults to 8.
   --as-test             Whether this script should be run as a test.
+  --resume RESUME       Path to an existing Ray Tune experiment directory to resume from.
+                        Example: ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>
 
+```
+
+### Resuming a training run
+
+Checkpoints are saved every 100 training iterations under `./results/torch/<exp_name>/`. If training is interrupted (power loss, cloud preemption, etc.) you can resume from the last checkpoint:
+
+```bash
+# Start training
+python baselines/train/run_ray_train.py --exp commons_harvest__open --no-tune
+
+# Find the trial directory that was created
+ls ./results/torch/commons_harvest__open/
+
+# Resume from it — training continues from the last saved checkpoint
+python baselines/train/run_ray_train.py \
+  --exp commons_harvest__open \
+  --no-tune \
+  --resume ./results/torch/commons_harvest__open
 ```
 
 > For torch backend, you may need to prepend the above command with CUDA_VISIBLE_DEVICE=[DEVICE IDs]
