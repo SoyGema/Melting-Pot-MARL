@@ -97,6 +97,15 @@ def get_cli_args():
         help="Whether this script should be run as a test.",
   )
 
+  parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to an existing Ray Tune experiment directory to resume from. "
+             "Pass the full path to the trial folder (the one containing params.json). "
+             "Example: ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>",
+  )
+
   #parser.add_argument(
   #      "--num_iterations",
   #      type=int,
@@ -176,16 +185,28 @@ if __name__ == "__main__":
 
 
   # Setup checkpointing configurations
-  ckpt_config = air.CheckpointConfig(num_to_keep=exp_config['keep'], checkpoint_frequency=exp_config['freq'], 
+  ckpt_config = air.CheckpointConfig(num_to_keep=exp_config['keep'], checkpoint_frequency=exp_config['freq'],
                                      checkpoint_at_end=exp_config['end'])
 
-  # Run Trials
-  results = tune.Tuner(
-      trainer,
-      param_space=configs.to_dict(),
-      run_config=air.RunConfig(name = exp_config['name'], callbacks=wdb_callbacks, local_dir=exp_config['dir'], 
-                               stop=exp_config['stop'], checkpoint_config=ckpt_config, verbose=0),
-  ).fit()
+  # Run Trials (resume from checkpoint if --resume path is provided)
+  if args.resume:
+    print(f"Resuming experiment from: {args.resume}")
+    tuner = tune.Tuner.restore(
+        args.resume,
+        trainable=trainer,
+        resume_unfinished=True,
+        resume_errored=False,
+        restart_errored=False,
+    )
+  else:
+    tuner = tune.Tuner(
+        trainer,
+        param_space=configs.to_dict(),
+        run_config=air.RunConfig(name=exp_config['name'], callbacks=wdb_callbacks, local_dir=exp_config['dir'],
+                                 stop=exp_config['stop'], checkpoint_config=ckpt_config, verbose=0),
+    )
+
+  results = tuner.fit()
 
   best_result = results.get_best_result(metric="episode_reward_mean", mode="max")
   print(best_result)
