@@ -321,3 +321,4 @@ local allComponents = {
 component_registry.registerAllComponents(allComponents)
 
 return allComponents
+
