@@ -204,3 +204,73 @@ The mixed evaluation added in this repo (`--background_policies_dir`) is a middl
 | Retaliatory zapping | Agent zaps after being zapped, not after being harvested | open | Tit-for-tat-like punishment |
 | Migration | Agents shift between patches as local density drops | open, scarcity | Adaptive resource management |
 | Coalition avoidance | Agents spread across map to minimize overlap | scarcity | Individual response to resource pressure |
+
+---
+
+## Priority Experiments (Next Steps)
+
+The following three experiments are ranked by expected impact based on prior project findings
+(Parreño et al., 2024) and the current state of the codebase.
+
+### 1. `commons_harvest__farmer` as focal vs `commons_harvest__open` as background
+
+**The most important open question from an AI Safety standpoint.**
+
+`commons_harvest__farmer` is already the farmer-no-zap substrate: agents have the proximity
+reward shaping incentive (`rewardForEdibleVisible = 0.1`) but no access to the zap action.
+The central safety question this experiment addresses is:
+
+> Can an agent that was never trained to punish, but has a positive sustainability incentive,
+> survive and remain competitive when placed against agents that can zap?
+
+This tests action-space asymmetry directly: the background agents can exploit the focal agents
+via zapping, while the focal agents can only respond by harvesting efficiently. If farmer agents
+maintain competitive returns despite this asymmetry, it is evidence that positive reward shaping
+can substitute for punishment as a cooperation mechanism — a qualitatively different and safer
+alignment strategy.
+
+Run with the mixed evaluation infrastructure already in place:
+
+```bash
+python baselines/evaluation/evaluate.py \
+  --config_dir results/torch/commons_harvest__farmer/... \
+  --policies_dir results/torch/commons_harvest__farmer/.../policies \
+  --background_policies_dir results/torch/commons_harvest__open/.../policies \
+  --num_background_agents 2 --num_episodes 20
+```
+
+The per-agent zap and apple tracking columns in the output CSV directly measure the asymmetry.
+
+---
+
+### 2. `commons_harvest__open_disable_zapping` focal vs `commons_harvest__open` background
+
+**The punishment asymmetry experiment — infrastructure is ready, agents need retraining.**
+
+Prior results showed `no_zap` was the best-performing trained agent (~10% below the open
+baseline), with the lowest inequality and fewest depleted fields. However, the evaluation at
+the time could not measure what happened when these pacifist agents were placed against
+background agents that *can* zap.
+
+The question: **is a no_zap agent exploited, or does its sustainable harvesting strategy
+produce competitive returns even under aggression?**
+
+This is directly relevant to AI Safety: it tests whether restricting a harmful action from
+an agent's action space makes it vulnerable in a mixed population — which would argue against
+action-space constraints as a safety mechanism — or whether it remains robust.
+
+---
+
+### 3. Retrain `commons_harvest__farmer` with corrected reward
+
+**The most immediately actionable experiment.**
+
+The original farmer results were inconclusive because `rewardForEdibleVisible = 0.01` was too
+small relative to the `+1` apple-eating reward to produce a meaningful learning signal. The
+substrate now uses `rewardForEdibleVisible = 0.1` (one order of magnitude increase, as
+recommended in the project write-up). The hypothesis is that agents will learn to hover near
+apple patches rather than deplete them, producing qualitatively different and more sustainable
+harvesting behaviour.
+
+This is the baseline that experiments 1 and 2 depend on — without a properly trained farmer
+agent, the cross-population evaluation has no signal.
