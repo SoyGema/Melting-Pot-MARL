@@ -24,7 +24,7 @@ def get_cli_args():
   )
   parser.add_argument(
       "--num_gpus",
-      type=int,
+      type=float,
       default=0,
       help="Number of GPUs to run on (can be a fraction)",
   )

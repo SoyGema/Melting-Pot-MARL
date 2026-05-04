@@ -46,6 +46,8 @@ SUPPORTED_SCENARIOS = [
     'commons_harvest__open_abundance_1',
     'commons_harvest__open_scarcity_0',
     'commons_harvest__open_scarcity_1',
+    'commons_harvest__farmer_0',
+    'commons_harvest__farmer_1',
 ]
 
 IGNORE_KEYS = ['WORLD.RGB', 'INTERACTION_INVENTORIES', 'NUM_OTHERS_WHO_CLEANED_THIS_STEP']
