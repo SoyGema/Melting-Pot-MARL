@@ -72,13 +72,13 @@ def run_evaluation(args):
 
   # Build population and evaluate
   with build_focal_population(policies_path, policy_ids, scaled) as population:
-    results = evaluation.evaluate_population(
+    episode_results, step_results = evaluation.evaluate_population(
         population=population,
         names_by_role=names_by_role,
         scenario=scenario,
         num_episodes=args.num_episodes,
         video_root=video_dir)
-  return results, scenario
+  return episode_results, step_results, scenario
 
 
 def run_mixed_evaluation(args):
@@ -142,7 +142,11 @@ def run_mixed_evaluation(args):
 
 
 def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episodes):
-  """Steps through episodes manually, tracking focal and background returns separately."""
+  """Steps through episodes manually, tracking focal and background returns separately.
+
+  Also tracks per-agent apple consumption (reward > 0.5 per step) and
+  zap fires (READY_TO_SHOOT transitions from 1 to 0) when available.
+  """
   factory = meltingpot.substrate.get_factory(substrate_name)
   roles = factory.default_player_roles()
 
@@ -154,6 +158,9 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       timestep = env.reset()
       focal_return = np.zeros(n_focal)
       bg_return    = np.zeros(n_total - n_focal)
+      apples_eaten = np.zeros(n_total, dtype=int)
+      zaps_fired   = np.zeros(n_total, dtype=int)
+      prev_ready   = None
 
       population.send_timestep(timestep)
       actions = population.await_action()
@@ -163,6 +170,18 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
         rewards  = np.array(timestep.reward)
         focal_return += rewards[:n_focal]
         bg_return    += rewards[n_focal:]
+
+        # Apple consumption: reward > 0.5 filters out small proximity rewards
+        apples_eaten += (rewards > 0.5).astype(int)
+
+        # Zap tracking via READY_TO_SHOOT transitions (1 → 0 means zap fired)
+        obs = timestep.observation
+        if obs and 'READY_TO_SHOOT' in obs[0]:
+          ready = np.array([obs[i]['READY_TO_SHOOT'] for i in range(n_total)])
+          if prev_ready is not None:
+            zaps_fired += ((prev_ready == 1) & (ready == 0)).astype(int)
+          prev_ready = ready
+
         population.send_timestep(timestep)
         actions = population.await_action()
 
@@ -170,9 +189,17 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       data['focal_per_capita_return'].append(float(np.mean(focal_return)))
       data['background_player_returns'].append(bg_return.tolist())
       data['background_per_capita_return'].append(float(np.mean(bg_return)))
+      data['apples_eaten_per_agent'].append(apples_eaten.tolist())
+      data['focal_apples_eaten'].append(apples_eaten[:n_focal].tolist())
+      data['background_apples_eaten'].append(apples_eaten[n_focal:].tolist())
+      data['zaps_fired_per_agent'].append(zaps_fired.tolist())
+      data['focal_zaps_fired'].append(zaps_fired[:n_focal].tolist())
+      data['background_zaps_fired'].append(zaps_fired[n_focal:].tolist())
       print(f"  Episode {ep + 1}/{num_episodes} — "
             f"focal per capita: {np.mean(focal_return):.2f}  "
-            f"background per capita: {np.mean(bg_return):.2f}")
+            f"background per capita: {np.mean(bg_return):.2f}  "
+            f"focal zaps: {zaps_fired[:n_focal].sum()}  "
+            f"bg zaps: {zaps_fired[n_focal:].sum()}")
 
   return pd.DataFrame(data)
 
@@ -249,6 +276,10 @@ if __name__ == "__main__":
   if args.background_policies_dir:
     print("Custom background population provided. Running mixed evaluation on substrate.")
     results, scenario = run_mixed_evaluation(args)
+    results.to_csv(f'{args.config_dir}/results_evals.csv', index=False)
+    print(f"\nResults for {scenario}:")
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+        print(results)
   else:
     if args.eval_on_scenario:
       if args.scenario is None:
@@ -257,10 +288,9 @@ if __name__ == "__main__":
         raise Exception("Provide a valid scenario name from supported scenarios. Supported scenarios are: ", SUPPORTED_SCENARIOS)
     else:
       print("evaluate_on_scenario=False. Evaluating on substrate found in the config file provided.")
-    results, scenario = run_evaluation(args)
-
-  results.to_csv(f'{args.config_dir}/results_evals.csv', index=False)
-  print(f"\nResults for {scenario}:")
-  with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-      print(results)
-
+    episode_results, step_results, scenario = run_evaluation(args)
+    episode_results.to_csv(f'{args.config_dir}/results_evals.csv', index=False)
+    step_results.to_csv(f'{args.config_dir}/results_evals_timestep.csv', index=False)
+    print(f"\nResults for {scenario}:")
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+        print(episode_results)
