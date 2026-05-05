@@ -52,7 +52,9 @@ from ml_collections import config_dict
 import numpy as np
 
 # Warning: setting `_ENABLE_DEBUG_OBSERVATIONS = True` may cause slowdown.
-_ENABLE_DEBUG_OBSERVATIONS = False
+# Enabled to expose POSITION and ORIENTATION observations for spatiotemporal
+# analysis of emergent behavior (avoidance, territoriality, coordination).
+_ENABLE_DEBUG_OBSERVATIONS = True
 
 APPLE_RESPAWN_RADIUS = 2.0
 REGROWTH_PROBABILITIES = [0.0, 0.0025, 0.005, 0.025]
@@ -541,6 +543,8 @@ def get_config():
   config.individual_observation_names = [
       "RGB",
       "READY_TO_SHOOT",
+      "POSITION",
+      "ORIENTATION",
   ]
   config.global_observation_names = [
       "WORLD.RGB",
@@ -553,6 +557,8 @@ def get_config():
       "READY_TO_SHOOT": specs.OBSERVATION["READY_TO_SHOOT"],
       # Debug only (do not use the following observations in policies).
       "WORLD.RGB": specs.rgb(144, 192),
+      "POSITION": specs.OBSERVATION["POSITION"],
+      "ORIENTATION": specs.OBSERVATION["ORIENTATION"],
   })
 
   # The roles assigned to each player.
