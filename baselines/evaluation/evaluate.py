@@ -5,8 +5,16 @@ import contextlib
 import json
 import pandas as pd
 import numpy as np
-import tensorflow as tf
-tf.compat.v1.disable_eager_execution()
+# TensorFlow is only required for scenario evaluation using DeepMind's
+# pre-trained bots (TF1 SavedModel format).  Training and mixed evaluation
+# use PyTorch only.  On Apple Silicon install tensorflow-macos instead of
+# tensorflow; on Linux the standard tensorflow package is fine.
+try:
+    import tensorflow as tf
+    tf.compat.v1.disable_eager_execution()
+    _TF_AVAILABLE = True
+except ImportError:
+    _TF_AVAILABLE = False
 
 import meltingpot
 from baselines.train.configs import SUPPORTED_SCENARIOS
@@ -282,6 +290,13 @@ if __name__ == "__main__":
         print(results)
   else:
     if args.eval_on_scenario:
+      if not _TF_AVAILABLE:
+        raise ImportError(
+            "Scenario evaluation requires TensorFlow (for DeepMind bots). "
+            "On Apple Silicon install: pip install tensorflow-macos tensorflow-metal. "
+            "On Linux: pip install tensorflow. "
+            "Mixed evaluation (--background_policies_dir) and substrate evaluation "
+            "do NOT require TensorFlow.")
       if args.scenario is None:
         raise Exception("Either set evaluate_on_scenario to False or provide a scenario name from supported scenarios")
       if args.scenario not in SUPPORTED_SCENARIOS:
