@@ -196,7 +196,79 @@ OPTIONS:
                         Whether to create evaluation videos
   --video_dir VIDEO_DIR
                         Directory where you want to store evaluation videos
+  --background_policies_dir BACKGROUND_POLICIES_DIR
+                        Policies dir for a second population (mixed evaluation, no DeepMind bots)
+  --num_background_agents NUM_BACKGROUND_AGENTS
+                        Number of background agent slots (default: 2)
+  --wandb               Log metrics and results table to Weights & Biases
+  --wandb_project WANDB_PROJECT
+                        W&B project name (default: meltingpot-eval)
 ```
+
+### Evaluation with Weights & Biases logging
+
+Set your API key once, then add `--wandb` to any evaluation command:
+
+```bash
+export WANDB_API_KEY=<your_key>
+```
+
+**Self-play on substrate:**
+```bash
+python baselines/evaluation/evaluate.py \
+  --config_dir results/torch/commons_harvest__open/PPO_meltingpot_<hash> \
+  --policies_dir results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_001000/policies \
+  --num_episodes 20 \
+  --wandb --wandb_project meltingpot-eval
+```
+
+**Mixed evaluation (focal vs background population):**
+```bash
+python baselines/evaluation/evaluate.py \
+  --config_dir results/torch/commons_harvest__open/PPO_meltingpot_<hash> \
+  --policies_dir results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_001000/policies \
+  --background_policies_dir results/torch/commons_harvest__open_disable_zapping/PPO_meltingpot_<hash>/checkpoint_001000/policies \
+  --num_background_agents 2 \
+  --num_episodes 20 \
+  --wandb --wandb_project meltingpot-eval
+```
+
+W&B logs the following **per episode**: `focal_per_capita_return`, `background_per_capita_return`, `focal/background_apples_eaten`, `focal/background_zaps_fired`, and domain metrics:
+
+| Metric | Description |
+|---|---|
+| `cooperation_index` | Fraction of agent-steps with no zap (1 = fully cooperative) |
+| `zap_rate` | Zaps per agent per step |
+| `harvest_rate` | Apples eaten per agent per step |
+| `sustainability_index` | Harvest rate 2nd half / 1st half of episode (< 1 = patch collapsing) |
+| `gini_coefficient` | Inequality of returns across agents (0 = equal) |
+| `episode_depleted` | 1 if all patches collapsed permanently, else 0 |
+
+A final `eval_results` W&B Table with all episodes is also logged.
+
+**Fig. 2-style focal vs background plot directly to W&B:**
+```bash
+python baselines/evaluation/plot_evaluation.py \
+  --results_dir ./eval_results \
+  --focal_label farmer \
+  --background_label open \
+  --wandb --wandb_project meltingpot-eval
+```
+
+**Depletion sweep across zapping cooldowns (Fig. 5):**
+```bash
+python baselines/evaluation/depletion_sweep.py \
+  --config_dir results/torch/commons_harvest__open/PPO_meltingpot_<hash> \
+  --policies_dir results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_001000/policies \
+  --agent_label open \
+  --num_episodes 15 \
+  --output_dir eval_results/depletion \
+  --wandb --wandb_project meltingpot-eval
+```
+
+> **Note on TensorFlow**: scenario evaluation (`--eval_on_scenario True`) requires TensorFlow
+> to load DeepMind's pre-trained bots. On Apple Silicon: `pip install tensorflow-macos tensorflow-metal`.
+> All other evaluation modes (substrate, mixed, depletion sweep) use PyTorch only.
 
 
 ## Visualization
