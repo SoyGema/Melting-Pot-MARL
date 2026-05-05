@@ -27,6 +27,7 @@ import meltingpot
 from baselines.train.configs import SUPPORTED_SCENARIOS
 from baselines.customs.policies import EvalPolicy
 from baselines.wrappers.downsamplepolicy_wrapper import DownsamplingPolicyWraper
+from baselines.evaluation.evaluation_metrics import compute_episode_metrics
 from collections.abc import Iterator, Mapping
 from collections import defaultdict
 from meltingpot.utils.evaluation import evaluation
@@ -175,6 +176,7 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       bg_return    = np.zeros(n_total - n_focal)
       apples_eaten = np.zeros(n_total, dtype=int)
       zaps_fired   = np.zeros(n_total, dtype=int)
+      step_rewards = []   # total group reward per env step (for domain metrics)
       prev_ready   = None
 
       population.send_timestep(timestep)
@@ -185,6 +187,7 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
         rewards  = np.array(timestep.reward)
         focal_return += rewards[:n_focal]
         bg_return    += rewards[n_focal:]
+        step_rewards.append(float(rewards.sum()))
 
         # Apple consumption: reward > 0.5 filters out small proximity rewards
         apples_eaten += (rewards > 0.5).astype(int)
@@ -205,6 +208,15 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       focal_zaps = int(zaps_fired[:n_focal].sum())
       bg_zaps    = int(zaps_fired[n_focal:].sum())
 
+      # Domain metrics from evaluation_metrics.py
+      metrics = compute_episode_metrics(
+          focal_returns=focal_return,
+          bg_returns=bg_return,
+          apples_eaten=apples_eaten,
+          zaps_fired=zaps_fired,
+          step_rewards=step_rewards,
+      )
+
       data['focal_player_returns'].append(focal_return.tolist())
       data['focal_per_capita_return'].append(focal_pc)
       data['background_player_returns'].append(bg_return.tolist())
@@ -215,30 +227,39 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       data['zaps_fired_per_agent'].append(zaps_fired.tolist())
       data['focal_zaps_fired'].append(zaps_fired[:n_focal].tolist())
       data['background_zaps_fired'].append(zaps_fired[n_focal:].tolist())
+      for k, v in metrics.items():
+        data[k].append(v)
+
       print(f"  Episode {ep + 1}/{num_episodes} — "
-            f"focal per capita: {focal_pc:.2f}  "
-            f"background per capita: {bg_pc:.2f}  "
-            f"focal zaps: {focal_zaps}  "
-            f"bg zaps: {bg_zaps}")
+            f"focal: {focal_pc:.2f}  bg: {bg_pc:.2f}  "
+            f"focal zaps: {focal_zaps}  bg zaps: {bg_zaps}  "
+            f"coop: {metrics['cooperation_index']:.3f}  "
+            f"sustain: {metrics['sustainability_index']:.3f}  "
+            f"depleted: {bool(metrics['episode_depleted'])}")
 
       if wandb.run is not None:
         wandb.log({
-            "episode":                    ep + 1,
-            "focal_per_capita_return":    focal_pc,
+            "episode":                      ep + 1,
+            "focal_per_capita_return":      focal_pc,
             "background_per_capita_return": bg_pc,
-            "focal_apples_eaten":         int(apples_eaten[:n_focal].sum()),
-            "background_apples_eaten":    int(apples_eaten[n_focal:].sum()),
-            "focal_zaps_fired":           focal_zaps,
-            "background_zaps_fired":      bg_zaps,
+            "focal_apples_eaten":           int(apples_eaten[:n_focal].sum()),
+            "background_apples_eaten":      int(apples_eaten[n_focal:].sum()),
+            "focal_zaps_fired":             focal_zaps,
+            "background_zaps_fired":        bg_zaps,
+            **metrics,
         })
 
   df = pd.DataFrame(data)
   if wandb.run is not None:
-    wandb.log({"eval_results": wandb.Table(dataframe=df[[
+    log_cols = [
         "focal_per_capita_return", "background_per_capita_return",
         "focal_zaps_fired", "background_zaps_fired",
         "focal_apples_eaten", "background_apples_eaten",
-    ]])})
+        "cooperation_index", "zap_rate", "harvest_rate",
+        "sustainability_index", "gini_coefficient", "episode_depleted",
+        "total_apples_harvested", "total_zaps_fired",
+    ]
+    wandb.log({"eval_results": wandb.Table(dataframe=df[log_cols])})
   return df
 
 

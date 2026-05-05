@@ -30,8 +30,16 @@ import os
 
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+
+try:
+    import wandb
+    _WANDB_AVAILABLE = True
+except ImportError:
+    _WANDB_AVAILABLE = False
 
 
 FOCAL_COLOR = "#E05555"       # red
@@ -136,11 +144,26 @@ def main(args):
 
     plt.tight_layout()
 
+    if args.wandb:
+        if not _WANDB_AVAILABLE:
+            print("WARNING: wandb not installed. Run: pip install wandb")
+        else:
+            wandb.init(
+                project=args.wandb_project,
+                name=f"{args.focal_label}_vs_{args.background_label}",
+                config=vars(args),
+            )
+            wandb.log({"focal_vs_background": wandb.Image(fig)})
+            wandb.finish()
+            print("Plot logged to W&B.")
+
     if args.output:
         plt.savefig(args.output, bbox_inches="tight", dpi=150)
         print(f"Figure saved to {args.output}")
-    else:
+    elif not args.wandb:
         plt.show()
+
+    plt.close(fig)
 
 
 if __name__ == "__main__":
@@ -177,6 +200,18 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Path to save the figure (e.g. plot.png). If not set, displays interactively.",
+    )
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        default=False,
+        help="Log the plot directly to Weights & Biases instead of saving to disk.",
+    )
+    parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default="meltingpot-eval",
+        help="W&B project name (default: meltingpot-eval).",
     )
 
     args = parser.parse_args()
