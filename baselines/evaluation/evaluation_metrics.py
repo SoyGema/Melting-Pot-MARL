@@ -1,85 +1,135 @@
-# Import necessary libraries
+"""
+evaluation_metrics.py
+
+Domain metrics for commons_harvest evaluations.
+All functions take numpy arrays produced directly by the evaluation loop
+(rewards, zaps, apples eaten, step counts) — no mock data.
+
+Metrics
+-------
+cooperation_index       Fraction of agent-steps NOT spent zapping (0=full defection, 1=no aggression)
+zap_rate                Zaps fired per agent per step
+harvest_rate            Apples eaten per agent per step
+sustainability_index    Ratio of late-episode to early-episode harvest rate (1=stable, <1=collapsing)
+gini_coefficient        Inequality of returns across agents (0=equal, 1=maximal inequality)
+episode_depleted        1 if the patch collapsed permanently (zero harvest in final window), else 0
+"""
+
 import numpy as np
 
-# Example observations we might need
-# Assuming we have a list of dictionaries where each dictionary represents an apple field observation
-# and contains information about the number of apples, whether it is depleted, regrowth rate, etc.
-apple_fields = [
-    {'field_id': 1, 'initial_apples': 100, 'harvested_apples': 80, 'regrown_apples': 20, 'is_depleted': False},
-    {'field_id': 2, 'initial_apples': 100, 'harvested_apples': 100, 'regrown_apples': 0, 'is_depleted': True},
-    # Add more fields as needed
-]
 
-# Assuming we have a list of dictionaries where each dictionary represents an agent's actions
-# and contains information about the number of cooperative actions, total actions, etc.
-agents = [
-    {'agent_id': 1, 'cooperative_actions': 30, 'total_actions': 50, 'reduction_in_overharvesting': 5, 'total_punishments': 2},
-    {'agent_id': 2, 'cooperative_actions': 20, 'total_actions': 50, 'reduction_in_overharvesting': 3, 'total_punishments': 1},
-    # Add more agents as needed
-]
+# ---------------------------------------------------------------------------
+# Individual metrics
+# ---------------------------------------------------------------------------
 
-# 1. Number of Apple Fields Depleted
-def calculate_depleted_fields(apple_fields):
-    return sum(1 for field in apple_fields if field['is_depleted'])
+def cooperation_index(zaps_fired: np.ndarray, episode_steps: int, n_agents: int) -> float:
+    """Fraction of agent-steps with no zap fired.
 
-# 2. Average Apple Regrowth Rate
-def calculate_average_regrowth_rate(apple_fields):
-    total_regrowth = sum(field['regrown_apples'] for field in apple_fields)
-    return total_regrowth / len(apple_fields)
+    1.0 = no agent ever zapped (fully cooperative)
+    0.0 = every agent-step included a zap (maximally aggressive)
+    """
+    agent_steps = episode_steps * n_agents
+    if agent_steps == 0:
+        return 1.0
+    return 1.0 - float(zaps_fired.sum()) / agent_steps
 
-# 3. Total Apples Harvested
-def calculate_total_apples_harvested(apple_fields):
-    return sum(field['harvested_apples'] for field in apple_fields)
 
-# 4. Harvest-to-Regrowth Ratio
-def calculate_harvest_to_regrowth_ratio(apple_fields):
-    total_harvested = sum(field['harvested_apples'] for field in apple_fields)
-    total_regrown = sum(field['regrown_apples'] for field in apple_fields)
-    return total_harvested / total_regrown if total_regrown > 0 else float('inf')
+def zap_rate(zaps_fired: np.ndarray, episode_steps: int, n_agents: int) -> float:
+    """Zaps per agent per step."""
+    agent_steps = episode_steps * n_agents
+    return float(zaps_fired.sum()) / agent_steps if agent_steps > 0 else 0.0
 
-# 5. Cooperation Index
-def calculate_cooperation_index(agents):
-    total_cooperative_actions = sum(agent['cooperative_actions'] for agent in agents)
-    total_actions = sum(agent['total_actions'] for agent in agents)
-    return total_cooperative_actions / total_actions
 
-# 6. Punishment Effectiveness
-def calculate_punishment_effectiveness(agents):
-    total_reduction_in_overharvesting = sum(agent['reduction_in_overharvesting'] for agent in agents)
-    total_punishments_administered = sum(agent['total_punishments'] for agent in agents)
-    return total_reduction_in_overharvesting / total_punishments_administered
+def harvest_rate(apples_eaten: np.ndarray, episode_steps: int, n_agents: int) -> float:
+    """Apples eaten per agent per step."""
+    agent_steps = episode_steps * n_agents
+    return float(apples_eaten.sum()) / agent_steps if agent_steps > 0 else 0.0
 
-# 7. Resource Sustainability Score
-def calculate_resource_sustainability_score(apple_fields, alpha=1, beta=1, gamma=1):
-    total_regrowth_rate = sum(field['regrown_apples'] for field in apple_fields) / len(apple_fields)
-    total_fields = len(apple_fields)
-    number_of_depleted_fields = sum(1 for field in apple_fields if field['is_depleted'])
-    harvest_to_regrowth_ratio = sum(field['harvested_apples'] for field in apple_fields) / sum(field['regrown_apples'] for field in apple_fields if field['regrown_apples'] > 0)
-    
-    sustainability_score = (
-        alpha * total_regrowth_rate +
-        beta * (1 - number_of_depleted_fields / total_fields) +
-        gamma * (1 / harvest_to_regrowth_ratio)
-    )
-    return sustainability_score
 
-# 8. Economic Efficiency
-def calculate_economic_efficiency(apple_fields, total_rewards):
-    total_apples_harvested = sum(field['harvested_apples'] for field in apple_fields)
-    total_fields = len(apple_fields)
-    number_of_depleted_fields = sum(1 for field in apple_fields if field['is_depleted'])
-    
-    economic_efficiency = (total_rewards / total_apples_harvested) * (1 - number_of_depleted_fields / total_fields)
-    return economic_efficiency
+def sustainability_index(step_rewards: list, split: float = 0.5) -> float:
+    """Ratio of per-step harvest rate in the second half vs first half of episode.
 
-# Example usage
-cooperation_index = calculate_cooperation_index(agents)
-punishment_effectiveness = calculate_punishment_effectiveness(agents)
-resource_sustainability_score = calculate_resource_sustainability_score(apple_fields, alpha=1, beta=1, gamma=1)
-economic_efficiency = calculate_economic_efficiency(apple_fields, total_rewards=500)
+    > 1  harvest increased over time (patches recovered / rare)
+    = 1  stable harvesting
+    < 1  harvest collapsed (patches depleted as episode progressed)
+    0    complete collapse in second half
 
-# Print the results
-print(f"Cooperation Index: {cooperation_index}")
-print(f"Punishment Effectiveness: {punishment_effectiveness}")
-print(f"Resource Sustainability Score: {resource_sustainability_score}")
-print(f"Economic Efficiency: {economic_efficiency}")
+    Parameters
+    ----------
+    step_rewards : list of floats — total group reward at each env step
+    split        : fraction of episode that defines the boundary (default 0.5)
+    """
+    if len(step_rewards) < 2:
+        return 1.0
+    mid = int(len(step_rewards) * split)
+    first_half  = np.mean(step_rewards[:mid])  if mid > 0 else 0.0
+    second_half = np.mean(step_rewards[mid:])
+    if first_half <= 0:
+        return 1.0 if second_half <= 0 else float('inf')
+    return float(second_half) / float(first_half)
+
+
+def gini_coefficient(returns: np.ndarray) -> float:
+    """Gini coefficient of per-agent episode returns.
+
+    0.0 = perfectly equal returns across agents
+    1.0 = maximally unequal (one agent takes everything)
+    """
+    if len(returns) == 0 or returns.sum() == 0:
+        return 0.0
+    sorted_r = np.sort(np.abs(returns))
+    n = len(sorted_r)
+    cumulative = np.cumsum(sorted_r)
+    return float((2 * np.sum((np.arange(1, n + 1)) * sorted_r)
+                  - (n + 1) * cumulative[-1]) / (n * cumulative[-1]))
+
+
+def episode_depleted(step_rewards: list,
+                     window: int = 1000,
+                     threshold: float = 1.0) -> int:
+    """1 if the episode ended with patch collapse, else 0.
+
+    An episode is classified as depleted when the total group reward
+    in the last `window` steps is below `threshold` (no apples eaten
+    = permanent patch collapse).
+    """
+    tail = step_rewards[-window:] if len(step_rewards) >= window else step_rewards
+    return int(sum(tail) < threshold)
+
+
+# ---------------------------------------------------------------------------
+# Composite: compute all metrics for one episode
+# ---------------------------------------------------------------------------
+
+def compute_episode_metrics(
+    focal_returns:  np.ndarray,
+    bg_returns:     np.ndarray,
+    apples_eaten:   np.ndarray,
+    zaps_fired:     np.ndarray,
+    step_rewards:   list,
+) -> dict:
+    """Return a dict of all domain metrics for a single episode.
+
+    Parameters
+    ----------
+    focal_returns  : per-agent cumulative reward for focal agents      (n_focal,)
+    bg_returns     : per-agent cumulative reward for background agents  (n_bg,)
+    apples_eaten   : total apples eaten per agent over episode          (n_agents,)
+    zaps_fired     : total zaps fired per agent over episode            (n_agents,)
+    step_rewards   : total group reward at each env step                list[float]
+    """
+    n_agents      = len(apples_eaten)
+    episode_steps = len(step_rewards)
+    all_returns   = np.concatenate([focal_returns, bg_returns])
+
+    return {
+        "cooperation_index":    cooperation_index(zaps_fired, episode_steps, n_agents),
+        "zap_rate":             zap_rate(zaps_fired, episode_steps, n_agents),
+        "harvest_rate":         harvest_rate(apples_eaten, episode_steps, n_agents),
+        "sustainability_index": sustainability_index(step_rewards),
+        "gini_coefficient":     gini_coefficient(all_returns),
+        "episode_depleted":     episode_depleted(step_rewards),
+        "total_apples_harvested": int(apples_eaten.sum()),
+        "total_zaps_fired":       int(zaps_fired.sum()),
+        "episode_steps":          episode_steps,
+    }

@@ -5,13 +5,29 @@ import contextlib
 import json
 import pandas as pd
 import numpy as np
-import tensorflow as tf
-tf.compat.v1.disable_eager_execution()
+# TensorFlow is only required for scenario evaluation using DeepMind's
+# pre-trained bots (TF1 SavedModel format).  Training and mixed evaluation
+# use PyTorch only.  On Apple Silicon install tensorflow-macos instead of
+# tensorflow; on Linux the standard tensorflow package is fine.
+try:
+    import tensorflow as tf
+    tf.compat.v1.disable_eager_execution()
+    _TF_AVAILABLE = True
+except ImportError:
+    _TF_AVAILABLE = False
+
+# W&B is optional.  Enable with --wandb flag + WANDB_API_KEY env var.
+try:
+    import wandb
+    _WANDB_AVAILABLE = True
+except ImportError:
+    _WANDB_AVAILABLE = False
 
 import meltingpot
 from baselines.train.configs import SUPPORTED_SCENARIOS
 from baselines.customs.policies import EvalPolicy
 from baselines.wrappers.downsamplepolicy_wrapper import DownsamplingPolicyWraper
+from baselines.evaluation.evaluation_metrics import compute_episode_metrics
 from collections.abc import Iterator, Mapping
 from collections import defaultdict
 from meltingpot.utils.evaluation import evaluation
@@ -160,6 +176,7 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       bg_return    = np.zeros(n_total - n_focal)
       apples_eaten = np.zeros(n_total, dtype=int)
       zaps_fired   = np.zeros(n_total, dtype=int)
+      step_rewards = []   # total group reward per env step (for domain metrics)
       prev_ready   = None
 
       population.send_timestep(timestep)
@@ -170,6 +187,7 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
         rewards  = np.array(timestep.reward)
         focal_return += rewards[:n_focal]
         bg_return    += rewards[n_focal:]
+        step_rewards.append(float(rewards.sum()))
 
         # Apple consumption: reward > 0.5 filters out small proximity rewards
         apples_eaten += (rewards > 0.5).astype(int)
@@ -185,23 +203,64 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
         population.send_timestep(timestep)
         actions = population.await_action()
 
+      focal_pc   = float(np.mean(focal_return))
+      bg_pc      = float(np.mean(bg_return))
+      focal_zaps = int(zaps_fired[:n_focal].sum())
+      bg_zaps    = int(zaps_fired[n_focal:].sum())
+
+      # Domain metrics from evaluation_metrics.py
+      metrics = compute_episode_metrics(
+          focal_returns=focal_return,
+          bg_returns=bg_return,
+          apples_eaten=apples_eaten,
+          zaps_fired=zaps_fired,
+          step_rewards=step_rewards,
+      )
+
       data['focal_player_returns'].append(focal_return.tolist())
-      data['focal_per_capita_return'].append(float(np.mean(focal_return)))
+      data['focal_per_capita_return'].append(focal_pc)
       data['background_player_returns'].append(bg_return.tolist())
-      data['background_per_capita_return'].append(float(np.mean(bg_return)))
+      data['background_per_capita_return'].append(bg_pc)
       data['apples_eaten_per_agent'].append(apples_eaten.tolist())
       data['focal_apples_eaten'].append(apples_eaten[:n_focal].tolist())
       data['background_apples_eaten'].append(apples_eaten[n_focal:].tolist())
       data['zaps_fired_per_agent'].append(zaps_fired.tolist())
       data['focal_zaps_fired'].append(zaps_fired[:n_focal].tolist())
       data['background_zaps_fired'].append(zaps_fired[n_focal:].tolist())
-      print(f"  Episode {ep + 1}/{num_episodes} — "
-            f"focal per capita: {np.mean(focal_return):.2f}  "
-            f"background per capita: {np.mean(bg_return):.2f}  "
-            f"focal zaps: {zaps_fired[:n_focal].sum()}  "
-            f"bg zaps: {zaps_fired[n_focal:].sum()}")
+      for k, v in metrics.items():
+        data[k].append(v)
 
-  return pd.DataFrame(data)
+      print(f"  Episode {ep + 1}/{num_episodes} — "
+            f"focal: {focal_pc:.2f}  bg: {bg_pc:.2f}  "
+            f"focal zaps: {focal_zaps}  bg zaps: {bg_zaps}  "
+            f"coop: {metrics['cooperation_index']:.3f}  "
+            f"sustain: {metrics['sustainability_index']:.3f}  "
+            f"depleted: {bool(metrics['episode_depleted'])}")
+
+      if wandb.run is not None:
+        wandb.log({
+            "episode":                      ep + 1,
+            "focal_per_capita_return":      focal_pc,
+            "background_per_capita_return": bg_pc,
+            "focal_apples_eaten":           int(apples_eaten[:n_focal].sum()),
+            "background_apples_eaten":      int(apples_eaten[n_focal:].sum()),
+            "focal_zaps_fired":             focal_zaps,
+            "background_zaps_fired":        bg_zaps,
+            **metrics,
+        })
+
+  df = pd.DataFrame(data)
+  if wandb.run is not None:
+    log_cols = [
+        "focal_per_capita_return", "background_per_capita_return",
+        "focal_zaps_fired", "background_zaps_fired",
+        "focal_apples_eaten", "background_apples_eaten",
+        "cooperation_index", "zap_rate", "harvest_rate",
+        "sustainability_index", "gini_coefficient", "episode_depleted",
+        "total_apples_harvested", "total_zaps_fired",
+    ]
+    wandb.log({"eval_results": wandb.Table(dataframe=df[log_cols])})
+  return df
 
 
 if __name__ == "__main__":
@@ -269,9 +328,33 @@ if __name__ == "__main__":
       default=2,
       help="Number of background agents (last N player slots). Default: 2.",
   )
+  parser.add_argument(
+      "--wandb",
+      action="store_true",
+      default=False,
+      help="Log evaluation metrics and results table to Weights & Biases.",
+  )
+  parser.add_argument(
+      "--wandb_project",
+      type=str,
+      default="meltingpot-eval",
+      help="W&B project name (default: meltingpot-eval).",
+  )
 
   args = parser.parse_args()
   print("Evaluating with the following arguments: ", args)
+
+  # Initialise W&B if requested
+  if args.wandb:
+    if not _WANDB_AVAILABLE:
+      print("WARNING: wandb not installed. Run: pip install wandb")
+    else:
+      import os
+      wandb.init(
+          project=args.wandb_project,
+          config=vars(args),
+          name=f"eval_{os.path.basename(args.config_dir)}",
+      )
 
   if args.background_policies_dir:
     print("Custom background population provided. Running mixed evaluation on substrate.")
@@ -282,6 +365,13 @@ if __name__ == "__main__":
         print(results)
   else:
     if args.eval_on_scenario:
+      if not _TF_AVAILABLE:
+        raise ImportError(
+            "Scenario evaluation requires TensorFlow (for DeepMind bots). "
+            "On Apple Silicon install: pip install tensorflow-macos tensorflow-metal. "
+            "On Linux: pip install tensorflow. "
+            "Mixed evaluation (--background_policies_dir) and substrate evaluation "
+            "do NOT require TensorFlow.")
       if args.scenario is None:
         raise Exception("Either set evaluate_on_scenario to False or provide a scenario name from supported scenarios")
       if args.scenario not in SUPPORTED_SCENARIOS:
@@ -294,3 +384,11 @@ if __name__ == "__main__":
     print(f"\nResults for {scenario}:")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None):
         print(episode_results)
+    if wandb.run is not None:
+      cols = [c for c in ['focal_per_capita_return', 'background_per_capita_return',
+                           'focal_player_returns', 'background_player_returns']
+              if c in episode_results.columns]
+      wandb.log({"eval_results": wandb.Table(dataframe=episode_results[cols])})
+
+  if _WANDB_AVAILABLE and wandb.run is not None:
+    wandb.finish()

@@ -499,6 +499,59 @@ gcloud compute instances add-metadata marl-train \
 
 ---
 
+## 6b. Depletion Sweep (Fig. 5)
+
+Measures what percentage of simulations end with fully-depleted apple patches,
+sweeping zapping cooldown values [1, 2, 10, 200, 2000].
+
+**Step 1** — Run once per agent type (replace paths and labels):
+
+```bash
+# open agents
+python baselines/evaluation/depletion_sweep.py \
+  --config_dir  results/torch/commons_harvest__open/PPO_meltingpot_<hash> \
+  --policies_dir results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_001000/policies \
+  --agent_label open \
+  --num_episodes 15 \
+  --output_dir  eval_results/depletion
+
+# no_zap agents
+python baselines/evaluation/depletion_sweep.py \
+  --config_dir  results/torch/commons_harvest__open_disable_zapping/PPO_meltingpot_<hash> \
+  --policies_dir results/torch/commons_harvest__open_disable_zapping/PPO_meltingpot_<hash>/checkpoint_001000/policies \
+  --agent_label no_zap \
+  --num_episodes 15 \
+  --output_dir  eval_results/depletion
+
+# scarcity agents
+python baselines/evaluation/depletion_sweep.py \
+  --config_dir  results/torch/commons_harvest__open_scarcity/PPO_meltingpot_<hash> \
+  --policies_dir results/torch/commons_harvest__open_scarcity/PPO_meltingpot_<hash>/checkpoint_001000/policies \
+  --agent_label scarcity \
+  --num_episodes 15 \
+  --output_dir  eval_results/depletion
+```
+
+Each run saves `<agent_label>_depletion.csv` and a single-agent bar chart to `--output_dir`.
+
+**Step 2** — Combine all CSVs into Fig.5:
+
+```bash
+python baselines/evaluation/depletion_sweep.py \
+  --plot_only \
+  --output_dir eval_results/depletion
+```
+
+Saves `eval_results/depletion/fig5_depleted_simulations.png`.
+
+**Output CSV columns**: `cooldown | episode | depleted | total_reward`
+
+**Depletion definition**: an episode is counted as depleted if the total group reward
+in the last 1000 steps of the episode is < 1.0 (i.e. no apples were eaten —
+permanent patch collapse).
+
+---
+
 ## 7. Finding Your Results
 
 After training:
