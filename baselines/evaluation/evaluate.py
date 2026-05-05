@@ -16,6 +16,13 @@ try:
 except ImportError:
     _TF_AVAILABLE = False
 
+# W&B is optional.  Enable with --wandb flag + WANDB_API_KEY env var.
+try:
+    import wandb
+    _WANDB_AVAILABLE = True
+except ImportError:
+    _WANDB_AVAILABLE = False
+
 import meltingpot
 from baselines.train.configs import SUPPORTED_SCENARIOS
 from baselines.customs.policies import EvalPolicy
@@ -193,10 +200,15 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
         population.send_timestep(timestep)
         actions = population.await_action()
 
+      focal_pc   = float(np.mean(focal_return))
+      bg_pc      = float(np.mean(bg_return))
+      focal_zaps = int(zaps_fired[:n_focal].sum())
+      bg_zaps    = int(zaps_fired[n_focal:].sum())
+
       data['focal_player_returns'].append(focal_return.tolist())
-      data['focal_per_capita_return'].append(float(np.mean(focal_return)))
+      data['focal_per_capita_return'].append(focal_pc)
       data['background_player_returns'].append(bg_return.tolist())
-      data['background_per_capita_return'].append(float(np.mean(bg_return)))
+      data['background_per_capita_return'].append(bg_pc)
       data['apples_eaten_per_agent'].append(apples_eaten.tolist())
       data['focal_apples_eaten'].append(apples_eaten[:n_focal].tolist())
       data['background_apples_eaten'].append(apples_eaten[n_focal:].tolist())
@@ -204,12 +216,30 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       data['focal_zaps_fired'].append(zaps_fired[:n_focal].tolist())
       data['background_zaps_fired'].append(zaps_fired[n_focal:].tolist())
       print(f"  Episode {ep + 1}/{num_episodes} — "
-            f"focal per capita: {np.mean(focal_return):.2f}  "
-            f"background per capita: {np.mean(bg_return):.2f}  "
-            f"focal zaps: {zaps_fired[:n_focal].sum()}  "
-            f"bg zaps: {zaps_fired[n_focal:].sum()}")
+            f"focal per capita: {focal_pc:.2f}  "
+            f"background per capita: {bg_pc:.2f}  "
+            f"focal zaps: {focal_zaps}  "
+            f"bg zaps: {bg_zaps}")
 
-  return pd.DataFrame(data)
+      if wandb.run is not None:
+        wandb.log({
+            "episode":                    ep + 1,
+            "focal_per_capita_return":    focal_pc,
+            "background_per_capita_return": bg_pc,
+            "focal_apples_eaten":         int(apples_eaten[:n_focal].sum()),
+            "background_apples_eaten":    int(apples_eaten[n_focal:].sum()),
+            "focal_zaps_fired":           focal_zaps,
+            "background_zaps_fired":      bg_zaps,
+        })
+
+  df = pd.DataFrame(data)
+  if wandb.run is not None:
+    wandb.log({"eval_results": wandb.Table(dataframe=df[[
+        "focal_per_capita_return", "background_per_capita_return",
+        "focal_zaps_fired", "background_zaps_fired",
+        "focal_apples_eaten", "background_apples_eaten",
+    ]])})
+  return df
 
 
 if __name__ == "__main__":
@@ -277,9 +307,33 @@ if __name__ == "__main__":
       default=2,
       help="Number of background agents (last N player slots). Default: 2.",
   )
+  parser.add_argument(
+      "--wandb",
+      action="store_true",
+      default=False,
+      help="Log evaluation metrics and results table to Weights & Biases.",
+  )
+  parser.add_argument(
+      "--wandb_project",
+      type=str,
+      default="meltingpot-eval",
+      help="W&B project name (default: meltingpot-eval).",
+  )
 
   args = parser.parse_args()
   print("Evaluating with the following arguments: ", args)
+
+  # Initialise W&B if requested
+  if args.wandb:
+    if not _WANDB_AVAILABLE:
+      print("WARNING: wandb not installed. Run: pip install wandb")
+    else:
+      import os
+      wandb.init(
+          project=args.wandb_project,
+          config=vars(args),
+          name=f"eval_{os.path.basename(args.config_dir)}",
+      )
 
   if args.background_policies_dir:
     print("Custom background population provided. Running mixed evaluation on substrate.")
@@ -309,3 +363,11 @@ if __name__ == "__main__":
     print(f"\nResults for {scenario}:")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None):
         print(episode_results)
+    if wandb.run is not None:
+      cols = [c for c in ['focal_per_capita_return', 'background_per_capita_return',
+                           'focal_player_returns', 'background_player_returns']
+              if c in episode_results.columns]
+      wandb.log({"eval_results": wandb.Table(dataframe=episode_results[cols])})
+
+  if _WANDB_AVAILABLE and wandb.run is not None:
+    wandb.finish()

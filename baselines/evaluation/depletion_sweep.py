@@ -39,6 +39,13 @@ import matplotlib.pyplot as plt
 
 import ray
 import meltingpot
+
+# W&B is optional.  Enable with --wandb flag + WANDB_API_KEY env var.
+try:
+    import wandb
+    _WANDB_AVAILABLE = True
+except ImportError:
+    _WANDB_AVAILABLE = False
 from meltingpot.utils.substrates import substrate as substrate_lib
 from baselines.customs.policies import EvalPolicy
 from baselines.wrappers.downsamplepolicy_wrapper import DownsamplingPolicyWraper
@@ -185,6 +192,13 @@ def run_sweep(policies_dir: str, policy_ids: list, scale: int,
                 print(f"  ep {ep+1:3d}/{num_episodes}  "
                       f"total_reward={ep_total_reward:7.1f}  "
                       f"depleted={depleted}")
+                if _WANDB_AVAILABLE and wandb.run is not None:
+                    wandb.log({
+                        "cooldown":     cooldown,
+                        "episode":      ep + 1,
+                        "depleted":     int(depleted),
+                        "total_reward": ep_total_reward,
+                    })
 
     return pd.DataFrame(records)
 
@@ -263,6 +277,12 @@ def get_args():
     p.add_argument("--output_dir",  type=str, default="eval_results/depletion",
                    help="Directory for CSVs and plots")
 
+    # -- W&B
+    p.add_argument("--wandb", action="store_true", default=False,
+                   help="Log metrics and plots to Weights & Biases.")
+    p.add_argument("--wandb_project", type=str, default="meltingpot-eval",
+                   help="W&B project name (default: meltingpot-eval).")
+
     return p.parse_args()
 
 
@@ -288,6 +308,17 @@ def main():
         raise ValueError("--config_dir and --policies_dir are required unless --plot_only")
 
     ray.init(ignore_reinit_error=True)
+
+    # Initialise W&B if requested
+    if args.wandb:
+        if not _WANDB_AVAILABLE:
+            print("WARNING: wandb not installed. Run: pip install wandb")
+        else:
+            wandb.init(
+                project=args.wandb_project,
+                config=vars(args),
+                name=f"depletion_{args.agent_label}",
+            )
 
     config = json.load(open(f"{args.config_dir}/params.json"))
     scale  = config["env_config"]["scaled"]
@@ -321,8 +352,20 @@ def main():
     print(summary.to_string())
 
     # Plot single-agent chart
-    plot_single(df, args.agent_label,
-                os.path.join(args.output_dir, f"{args.agent_label}_depletion.png"))
+    plot_path = os.path.join(args.output_dir, f"{args.agent_label}_depletion.png")
+    plot_single(df, args.agent_label, plot_path)
+
+    # W&B: log summary table + bar chart
+    if _WANDB_AVAILABLE and wandb.run is not None:
+        summary = df.groupby("cooldown").agg(
+            pct_depleted=("depleted", lambda x: 100 * x.mean()),
+            mean_reward=("total_reward", "mean"),
+        ).reindex(COOLDOWNS).reset_index()
+        wandb.log({
+            "depletion_summary": wandb.Table(dataframe=summary),
+            "depletion_plot":    wandb.Image(plot_path),
+        })
+        wandb.finish()
 
     ray.shutdown()
 
