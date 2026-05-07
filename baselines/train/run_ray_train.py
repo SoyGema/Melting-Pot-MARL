@@ -116,12 +116,12 @@ def get_cli_args():
              "Example: ./results/torch/commons_harvest__open/PPO_meltingpot_<hash>/checkpoint_000500",
   )
 
-  #parser.add_argument(
-  #      "--num_iterations",
-  #      type=int,
-  #      default=10,
-  #      help="The number of training iterations to run (lower=faster)"
-  #) #Todo: check this works, add to readme.
+  parser.add_argument(
+        "--prosocial",
+        action="store_true",
+        default=False,
+        help="If set, agents receive the mean group reward instead of individual reward.",
+  )
 
   args = parser.parse_args()
   print("Running trails with the following arguments: ", args)

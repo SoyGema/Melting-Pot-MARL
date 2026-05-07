@@ -11,13 +11,16 @@ PLAYER_STR_FORMAT = 'player_{index}'
 class MeltingPotEnv(multi_agent_env.MultiAgentEnv):
   """Interfacing Melting Pot substrates and RLLib MultiAgentEnv."""
 
-  def __init__(self, env: dmlab2d.Environment):
+  def __init__(self, env: dmlab2d.Environment, prosocial: bool = False):
     """Initializes the instance.
 
     Args:
       env: dmlab2d environment to wrap. Will be closed when this wrapper closes.
+      prosocial: if True, every agent receives the mean group reward instead of
+        its individual reward, encouraging collective rather than selfish behaviour.
     """
     self._env = env
+    self._prosocial = prosocial
     self._num_players = len(self._env.observation_spec())
     self._ordered_agent_ids = [
         PLAYER_STR_FORMAT.format(index=index)
@@ -45,10 +48,15 @@ class MeltingPotEnv(multi_agent_env.MultiAgentEnv):
     """See base class."""
     actions = [action_dict[agent_id] for agent_id in self._ordered_agent_ids]
     timestep = self._env.step(actions)
-    rewards = {
-        agent_id: timestep.reward[index]
-        for index, agent_id in enumerate(self._ordered_agent_ids)
-    }
+    individual_rewards = list(timestep.reward)
+    if self._prosocial:
+        shared = float(np.mean(individual_rewards))
+        rewards = {agent_id: shared for agent_id in self._ordered_agent_ids}
+    else:
+        rewards = {
+            agent_id: individual_rewards[index]
+            for index, agent_id in enumerate(self._ordered_agent_ids)
+        }
     done = {'__all__': timestep.last()}
     info = {}
 
