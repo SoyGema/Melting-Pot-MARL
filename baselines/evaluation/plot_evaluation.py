@@ -1,7 +1,7 @@
 """Plot per capita cumulative return for focal vs background populations.
 
 Reproduces Fig. 2-style evaluation plots: one subplot per substrate,
-focal (red) and background (gray) lines with mean ± std bands across runs.
+focal (red) and background (gray) lines with running mean ± std bands across runs.
 
 Expected directory structure
 -----------------------------
@@ -59,14 +59,14 @@ def load_runs(substrate_dir: str) -> list[pd.DataFrame]:
     return [pd.read_csv(f) for f in csv_files]
 
 
-def cumulative_per_capita(dfs: list[pd.DataFrame], col: str) -> np.ndarray:
-    """Return cumulative per capita return array of shape (n_runs, n_episodes)."""
-    cumulative_runs = []
+def running_mean_per_capita(dfs: list[pd.DataFrame], col: str) -> np.ndarray:
+    """Return running mean per capita return array of shape (n_runs, n_episodes)."""
+    runs = []
     for df in dfs:
-        cumulative_runs.append(df[col].values.cumsum())
-    # Align to the shortest run in case episode counts differ
-    min_len = min(len(r) for r in cumulative_runs)
-    return np.stack([r[:min_len] for r in cumulative_runs])  # (n_runs, n_episodes)
+        vals = df[col].values
+        runs.append(np.cumsum(vals) / np.arange(1, len(vals) + 1))
+    min_len = min(len(r) for r in runs)
+    return np.stack([r[:min_len] for r in runs])  # (n_runs, n_episodes)
 
 
 def plot_substrate(ax, dfs: list[pd.DataFrame], substrate_name: str,
@@ -76,7 +76,7 @@ def plot_substrate(ax, dfs: list[pd.DataFrame], substrate_name: str,
         for df in dfs
     )
 
-    focal_curves = cumulative_per_capita(dfs, "focal_per_capita_return")
+    focal_curves = running_mean_per_capita(dfs, "focal_per_capita_return")
     focal_mean = focal_curves.mean(axis=0)
     focal_std = focal_curves.std(axis=0)
     episodes = np.arange(1, len(focal_mean) + 1)
@@ -88,7 +88,7 @@ def plot_substrate(ax, dfs: list[pd.DataFrame], substrate_name: str,
                     color=FOCAL_COLOR, alpha=ALPHA_BAND)
 
     if has_background:
-        bg_curves = cumulative_per_capita(dfs, "background_per_capita_return")
+        bg_curves = running_mean_per_capita(dfs, "background_per_capita_return")
         bg_mean = bg_curves.mean(axis=0)
         bg_std = bg_curves.std(axis=0)
 
@@ -100,7 +100,7 @@ def plot_substrate(ax, dfs: list[pd.DataFrame], substrate_name: str,
 
     ax.set_title(f"Substrate {substrate_name}", fontsize=9)
     ax.set_xlabel("Episode", fontsize=8)
-    ax.set_ylabel("Per capita return", fontsize=8)
+    ax.set_ylabel("Mean per capita return", fontsize=8)
     ax.tick_params(labelsize=7)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
