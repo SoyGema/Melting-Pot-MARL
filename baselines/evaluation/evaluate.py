@@ -152,12 +152,15 @@ def run_mixed_evaluation(args):
         substrate_name=substrate_name,
         n_focal=n_focal,
         n_total=n_total,
-        num_episodes=args.num_episodes)
+        num_episodes=args.num_episodes,
+        config_dir=args.config_dir,
+        save_every=args.save_every)
 
   return results, substrate_name
 
 
-def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episodes):
+def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episodes,
+                        config_dir=None, save_every=20):
   """Steps through episodes manually, tracking focal and background returns separately.
 
   Also tracks per-agent apple consumption (reward > 0.5 per step) and
@@ -237,6 +240,10 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
             f"sustain: {metrics['sustainability_index']:.3f}  "
             f"depleted: {bool(metrics['episode_depleted'])}")
 
+      if config_dir and (ep + 1) % save_every == 0:
+        pd.DataFrame(data).to_csv(f'{config_dir}/results_evals.csv', index=False)
+        print(f"  [checkpoint] saved {ep + 1} episodes to results_evals.csv")
+
       if wandb.run is not None:
         wandb.log({
             "episode":                      ep + 1,
@@ -272,6 +279,12 @@ if __name__ == "__main__":
       type=int,
       default=2,
       help="Number of episodes to run evaluation",
+  )
+  parser.add_argument(
+      "--save_every",
+      type=int,
+      default=20,
+      help="Save results_evals.csv every N episodes (default: 20)",
   )
   parser.add_argument(
       "--eval_on_scenario",
