@@ -177,10 +177,11 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       timestep = env.reset()
       focal_return = np.zeros(n_focal)
       bg_return    = np.zeros(n_total - n_focal)
-      apples_eaten = np.zeros(n_total, dtype=int)
-      zaps_fired   = np.zeros(n_total, dtype=int)
-      step_rewards = []   # total group reward per env step (for domain metrics)
-      prev_ready   = None
+      apples_eaten     = np.zeros(n_total, dtype=int)
+      zaps_fired       = np.zeros(n_total, dtype=int)
+      step_rewards     = []   # total group reward per env step (for domain metrics)
+      position_steps   = []   # list of (N, 2) arrays, one per step
+      prev_ready       = None
 
       population.send_timestep(timestep)
       actions = population.await_action()
@@ -203,6 +204,11 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
             zaps_fired += ((prev_ready == 1) & (ready == 0)).astype(int)
           prev_ready = ready
 
+        # Position tracking for spatiotemporal metrics
+        if obs and 'POSITION' in obs[0]:
+          positions = np.array([obs[i]['POSITION'] for i in range(n_total)])  # (N, 2)
+          position_steps.append(positions)
+
         population.send_timestep(timestep)
         actions = population.await_action()
 
@@ -212,12 +218,14 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
       bg_zaps    = int(zaps_fired[n_focal:].sum())
 
       # Domain metrics from evaluation_metrics.py
+      pos_history = np.stack(position_steps, axis=0) if position_steps else None
       metrics = compute_episode_metrics(
           focal_returns=focal_return,
           bg_returns=bg_return,
           apples_eaten=apples_eaten,
           zaps_fired=zaps_fired,
           step_rewards=step_rewards,
+          position_history=pos_history,
       )
 
       data['focal_player_returns'].append(focal_return.tolist())
@@ -265,6 +273,10 @@ def _run_mixed_episodes(population, substrate_name, n_focal, n_total, num_episod
         "cooperation_index", "zap_rate", "harvest_rate",
         "sustainability_index", "gini_coefficient", "episode_depleted",
         "total_apples_harvested", "total_zaps_fired",
+        # spatiotemporal (present only when POSITION obs available)
+        *[c for c in ["spatial_entropy", "mean_interagent_dist",
+                       "patch_revisit_rate", "turn_taking_index", "avoidance_index"]
+          if c in df.columns],
     ]
     wandb.log({"eval_results": wandb.Table(dataframe=df[log_cols])})
   return df
