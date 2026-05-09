@@ -120,15 +120,15 @@ def get_experiment_config(args, default_config):
         "framework": args.framework,
 
         # agent model
-        "fcnet_hidden": (16, 16),
-        "post_fcnet_hidden": (64,),
+        "fcnet_hidden": (64, 64),
+        "post_fcnet_hidden": (128,),
         "cnn_activation": "relu",
         "fcnet_activation": "relu",
         "post_fcnet_activation": "relu",
         "use_lstm": True,
         "lstm_use_prev_action": True,
         "lstm_use_prev_reward": False,
-        "lstm_cell_size": 32,
+        "lstm_cell_size": 128,
         "shared_policy": False,
 
         # experiment trials
@@ -163,8 +163,7 @@ def get_experiment_config(args, default_config):
     run_configs.sgd_minibatch_size = params_dict['sgd_minibatch_size']
     run_configs.preprocessor_pref = None
     run_configs._disable_preprocessor_api = params_dict['disable_observation_precprocessing']
-    run_configs.rl_module(_enable_rl_module_api=params_dict['use_new_rl_modules'])
-    run_configs.training(_enable_learner_api=params_dict['use_new_learner_api'])
+    run_configs.experimental(_enable_new_api_stack=False)
     run_configs = run_configs.framework(params_dict['framework'])
     run_configs.log_level = params_dict['logging']
     run_configs.seed = params_dict['seed']
