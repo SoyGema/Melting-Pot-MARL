@@ -111,9 +111,9 @@ def get_experiment_config(args, default_config):
 
         # training
         "seed": args.seed,
-        "rollout_fragment_length": 10,
-        "train_batch_size": 400,
-        "sgd_minibatch_size": 32,
+        "rollout_fragment_length": 20,
+        "train_batch_size": 2000,
+        "sgd_minibatch_size": 256,
         "disable_observation_precprocessing": True,
         "use_new_rl_modules": False,
         "use_new_learner_api": False,
@@ -134,7 +134,7 @@ def get_experiment_config(args, default_config):
         # experiment trials
         "exp_name": args.exp,
         "stopping": {
-                    "training_iteration": 2500,
+                    "training_iteration": 1000,
                     #"timesteps_total": 100000000,
                     #"episode_reward_mean": 100,
         },
