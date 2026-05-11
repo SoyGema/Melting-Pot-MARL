@@ -11,13 +11,17 @@ PLAYER_STR_FORMAT = 'player_{index}'
 class MeltingPotEnv(multi_agent_env.MultiAgentEnv):
   """Interfacing Melting Pot substrates and RLLib MultiAgentEnv."""
 
-  def __init__(self, env: dmlab2d.Environment):
+  def __init__(self, env: dmlab2d.Environment, alpha: float = 1.0):
     """Initializes the instance.
 
     Args:
       env: dmlab2d environment to wrap. Will be closed when this wrapper closes.
+      alpha: Prosocial reward mixing coefficient. 1.0 = pure individual reward
+        (default, backwards compatible). 0.0 = pure collective (mean) reward.
+        r_i = alpha * r_individual + (1 - alpha) * mean(r_all)
     """
     self._env = env
+    self._alpha = alpha
     self._num_players = len(self._env.observation_spec())
     self._ordered_agent_ids = [
         PLAYER_STR_FORMAT.format(index=index)
@@ -45,10 +49,20 @@ class MeltingPotEnv(multi_agent_env.MultiAgentEnv):
     """See base class."""
     actions = [action_dict[agent_id] for agent_id in self._ordered_agent_ids]
     timestep = self._env.step(actions)
-    rewards = {
-        agent_id: timestep.reward[index]
-        for index, agent_id in enumerate(self._ordered_agent_ids)
-    }
+
+    if self._alpha >= 1.0:
+      rewards = {
+          agent_id: timestep.reward[index]
+          for index, agent_id in enumerate(self._ordered_agent_ids)
+      }
+    else:
+      mean_reward = float(np.mean(timestep.reward))
+      rewards = {
+          agent_id: (self._alpha * timestep.reward[index]
+                     + (1.0 - self._alpha) * mean_reward)
+          for index, agent_id in enumerate(self._ordered_agent_ids)
+      }
+
     done = {'__all__': timestep.last()}
     info = {}
 

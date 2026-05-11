@@ -92,6 +92,16 @@ def get_cli_args():
   )
 
   parser.add_argument(
+        "--alpha",
+        type=float,
+        default=1.0,
+        help="Prosocial reward mixing coefficient. "
+             "1.0 = pure individual reward (default). "
+             "0.0 = pure collective (mean) reward. "
+             "r_i = alpha * r_individual + (1 - alpha) * mean(r_all)",
+  )
+
+  parser.add_argument(
         "--as-test",
         action="store_true",
         help="Whether this script should be run as a test.",

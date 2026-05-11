@@ -106,7 +106,8 @@ def get_experiment_config(args, default_config):
 
         # Env
         "env_name": "meltingpot",
-        "env_config": {"substrate": substrate_name, "roles": player_roles, "scaled": scale_factor},
+        "env_config": {"substrate": substrate_name, "roles": player_roles, "scaled": scale_factor,
+                       "alpha": args.alpha},
 
 
         # training
